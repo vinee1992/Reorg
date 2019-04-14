@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:jdbc="http://www.springframework.org/schema/jdbc" xmlns:int-jdbc="http://www.springframework.org/schema/integration/jdbc"
+	xmlns:context="http://www.springframework.org/schema/context" xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:int-http="http://www.springframework.org/schema/integration/http"
+	xsi:schemaLocation="http://www.springframework.org/schema/integration/jdbc http://www.springframework.org/schema/integration/jdbc/spring-integration-jdbc.xsd
+		http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		http://www.springframework.org/schema/integration/http http://www.springframework.org/schema/integration/http/spring-integration-http.xsd
+		http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration.xsd">
+
+	<int:gateway id="techSkillServiceGateway" default-request-timeout="5000"
+		default-reply-timeout="10000" 
+		default-request-channel="techSkill.requestChannel"
+		service-interface="com.att.edge.backend.reorg.serviceGateWay.TechSkillServiceGateway"
+		error-channel="techSkill.errorChannel">
+		<int:method name="send"/>
+	</int:gateway>
+
+	<int:splitter id="techSkillSplitterId" input-channel="techSkill.requestChannel"
+		output-channel="techSkill.splitterChannel">	
+	</int:splitter>
+
+	<int:transformer input-channel="techSkill.splitterChannel"
+		output-channel="techSkill.transformChannel" ref="techAttributeTransformerBean"
+		method="transform"/>
+		
+	<int:object-to-json-transformer
+		input-channel="techSkill.transformChannel" output-channel="techSkill.headerData"/>
+
+	<int:header-enricher id="techSkillHeader" input-channel="techSkill.headerData"
+		output-channel="techSkill.json">
+		<int:header name="JSONPayload" expression="payload"/>
+	</int:header-enricher>
+
+	<int-http:outbound-gateway request-channel="techSkill.json"
+		url="#{systemProperties['techMaintServices.api']}" http-method="POST" expected-response-type="java.lang.String"
+		reply-channel="techSkill.replyChannel"  
+		error-handler="httpResponseErrorHandler"/>
+
+	<int:service-activator requires-reply="false"
+		input-channel="techSkill.replyChannel" ref="techAttributeService"
+		method="updateTechAttribute" output-channel="techSkill.updateStatusChannel"/>
+
+     <int-jdbc:outbound-gateway
+       update="${techSkill.updateStatusAfter}= :payload.status, PROCESS_STATUS_REASON= SUBSTR(:payload.statusReason , 1,999) , PROCESSED_DTTM =SYSDATE where SEQ_NO = :payload.seqNo"
+        request-channel="techSkill.updateStatusChannel" reply-channel="techSkill.dataChannel" data-source="dataSource"/>        
+
+	<int:service-activator 	input-channel="techSkill.errorChannel" ref="errorChannelServiceActivator"
+		method="updateTechAttribute" output-channel="techSkill.updateStatusChannel" />
+
+	<int:channel id="techSkill.dataChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="techSkill.transformChannel"/>
+
+	<int:channel id="techSkill.json">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="techSkill.replyChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="techSkill.headerData">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="techSkill.updateStatusChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+
+	</int:channel>
+	<int:channel id="techSkill.splitterChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+
+	</int:channel>
+
+	<int:channel id="techSkill.requestChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+	</int:channel>
+	<int:channel id="techSkill.errorChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService"/>
+		</int:interceptors>
+	</int:channel>
+</beans>
+

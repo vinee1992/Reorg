@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- processLocation -->
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:jdbc="http://www.springframework.org/schema/jdbc" xmlns:int-jdbc="http://www.springframework.org/schema/integration/jdbc"
+	xmlns:context="http://www.springframework.org/schema/context" xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:int-http="http://www.springframework.org/schema/integration/http"
+	xsi:schemaLocation="http://www.springframework.org/schema/integration/jdbc http://www.springframework.org/schema/integration/jdbc/spring-integration-jdbc.xsd
+		http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		http://www.springframework.org/schema/integration/http http://www.springframework.org/schema/integration/http/spring-integration-http.xsd
+		http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration.xsd">
+		
+	<int:gateway id="resourceLocationServiceGateway" default-request-timeout="5000"
+		default-reply-timeout="5000" default-request-channel="resourceLocation.requestChannel"
+		service-interface="com.att.edge.backend.reorg.serviceGateWay.ResourceLocationServiceGateway"
+		error-channel="resourceLocation.errorChannel">
+		<int:method name="send" />
+	</int:gateway>
+
+	<int:splitter id="resourceLocationSplitterId" input-channel="resourceLocation.requestChannel"
+		output-channel="resourceLocation.splitterChannel">
+		<!-- <beans:bean class="org.foo.TestSplitter"/> -->
+	</int:splitter>
+
+	<int:transformer input-channel="resourceLocation.splitterChannel"
+		output-channel="resourceLocation.transformChannel" ref="resourceAttributeTransformerBean"
+		method="transform" />
+	<int:object-to-json-transformer
+		input-channel="resourceLocation.transformChannel" output-channel="resourceLocation.headerData" />
+
+	<int:header-enricher id="resourceLocationHeader" input-channel="resourceLocation.headerData"
+		output-channel="resourceLocation.json">
+		<int:header name="JSONPayload" expression="payload" />
+	</int:header-enricher>
+
+	<int-http:outbound-gateway request-channel="resourceLocation.json"
+		url="#{systemProperties['resourceLocationMaintServices.api']}" http-method="POST" expected-response-type="java.lang.String"
+		reply-channel="resourceLocation.replyChannel" error-handler="httpResponseErrorHandler"/>
+
+	<int:service-activator requires-reply="false"
+		input-channel="resourceLocation.replyChannel" ref="resourceAttributeService" method="updateResourceAttribute"
+		output-channel="resourceLocation.updateStatusChannel" />
+
+	<int-jdbc:outbound-gateway
+		 update="${location.updateStatusAfter}= :payload.status, PROCESS_STATUS_REASON= SUBSTR(:payload.statusReason , 1,999) ,PROCESSED_DTTM =SYSDATE  where SEQ_NO = :payload.seqNo"
+		request-channel="resourceLocation.updateStatusChannel" reply-channel="resourceLocation.dataChannel" data-source="dataSource" />
+
+	<int:service-activator 	input-channel="resourceLocation.errorChannel" ref="errorChannelServiceActivator"
+		method="updateTechAttribute" output-channel="resourceLocation.updateStatusChannel" />
+
+	<int:channel id="resourceLocation.dataChannel">
+		<int:queue/>
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="resourceLocation.transformChannel" />
+
+	<int:channel id="resourceLocation.json">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="resourceLocation.replyChannel">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="resourceLocation.headerData">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="resourceLocation.updateStatusChannel">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+
+	</int:channel>
+	<int:channel id="resourceLocation.splitterChannel">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+
+	</int:channel>
+
+	<int:channel id="resourceLocation.requestChannel">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+		<int:channel id="resourceLocation.errorChannel">
+		<int:queue />
+		<int:interceptors>
+				<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<!-- <int-jdbc:inbound-channel-adapter query="${technician.select}" channel="dataChannel" 
+		data-source="dataSource" row-mapper="techAttributeMapper" update="${technician.updateStatusBefore} 
+		in(:seqNo)" max-rows-per-poll="2" > <int:poller fixed-rate="1000"> <int:transactional/> 
+		</int:poller> </int-jdbc:inbound-channel-adapter> -->
+
+</beans>

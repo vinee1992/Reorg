@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:jdbc="http://www.springframework.org/schema/jdbc" xmlns:int-jdbc="http://www.springframework.org/schema/integration/jdbc"
+	xmlns:context="http://www.springframework.org/schema/context" xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:int-http="http://www.springframework.org/schema/integration/http"
+	xsi:schemaLocation="http://www.springframework.org/schema/integration/jdbc http://www.springframework.org/schema/integration/jdbc/spring-integration-jdbc.xsd
+		http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		http://www.springframework.org/schema/integration/http http://www.springframework.org/schema/integration/http/spring-integration-http.xsd
+		http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration.xsd">
+	
+	<int:gateway id="techUnavailabiltyServiceGateway" default-request-timeout="5000"
+		default-reply-timeout="5000" default-request-channel="tecchUnavailabilty.requestChannel"
+		service-interface="com.att.edge.backend.reorg.serviceGateWay.TechUnavailibilityServiceGateway"
+		error-channel="tecchUnavailabilty.errorChannel">
+		<int:method name="send" />
+	</int:gateway>
+
+	<int:splitter id="tecchUnavailabiltySplitterId" input-channel="tecchUnavailabilty.requestChannel"
+		output-channel="tecchUnavailabilty.splitterChannel">
+		<!-- <beans:bean class="org.foo.TestSplitter"/> -->
+	</int:splitter>
+
+	<int:transformer input-channel="tecchUnavailabilty.splitterChannel"
+		output-channel="tecchUnavailabilty.transformChannel" ref="techScheduleTransformerBean"
+		method="transform" />
+
+	<int:object-to-json-transformer
+		input-channel="tecchUnavailabilty.transformChannel" output-channel="tecchUnavailabilty.headerData" />
+
+	<int:header-enricher id="tecchUnavailabiltyHeader" input-channel="tecchUnavailabilty.headerData"
+		output-channel="tecchUnavailabilty.json">
+		<int:header name="JSONPayload" expression="payload" />
+	</int:header-enricher>
+
+	<int-http:outbound-gateway request-channel="tecchUnavailabilty.json"
+		url="#{systemProperties['scheduleMaintServices.api']}" http-method="POST" expected-response-type="java.lang.String"
+		reply-channel="tecchUnavailabilty.replyChannel" />
+
+	<int:service-activator requires-reply="false"
+		input-channel="tecchUnavailabilty.replyChannel" ref="techScheduleServiceActivator" method="updateTechSchedule"
+		output-channel="tecchUnavailibilty.updateStatusChannel" />
+
+	<int-jdbc:outbound-gateway
+		update="${techUnavailibilty.updateStatusAfter}= :payload.status, PROCESS_STATUS_REASON= SUBSTR(:payload.statusReason , 1,199) , PROCESSED_DTTM =SYSDATE where SEQ_NO = :payload.seqNo"
+		request-channel="tecchUnavailibilty.updateStatusChannel" reply-channel="tecchUnavailabilty.dataChannel" data-source="dataSource" />
+
+	<int:service-activator 	input-channel="tecchUnavailabilty.errorChannel" ref="errorChannelServiceActivator"
+		method="updateTechAttribute" output-channel="tecchUnavailibilty.updateStatusChannel" />
+
+	<int:channel id="tecchUnavailabilty.dataChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+	
+	
+
+	<int:channel id="tecchUnavailabilty.transformChannel" />
+
+	<int:channel id="tecchUnavailabilty.json">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="tecchUnavailabilty.replyChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="tecchUnavailabilty.headerData">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="tecchUnavailibilty.updateStatusChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+
+	</int:channel>
+	<int:channel id="tecchUnavailabilty.splitterChannel">
+		<int:queue/>
+	<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+
+	<int:channel id="tecchUnavailabilty.requestChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+	<int:channel id="tecchUnavailabilty.errorChannel">
+		<int:queue/>
+		<int:interceptors>
+			<ref bean="messageLoggingService" />
+		</int:interceptors>
+	</int:channel>
+</beans>
